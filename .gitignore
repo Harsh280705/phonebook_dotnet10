@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual Environment
+venv/
+.venv/
+
+# Environment Variables
+.env
+
+# Node.js
+node_modules/
+
+# Vue build files
+dist/
+
+# IDE
+.vscode/
+
+# Operating System
+.DS_Store
+Thumbs.db
