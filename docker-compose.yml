@@ -1,0 +1,58 @@
+services:
+  db:
+    image: postgres:16
+    container_name: phonebook-db
+
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: RoKo@2024
+      POSTGRES_DB: phonebook_db
+
+    ports:
+      - "5434:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d phonebook_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+
+  backend:
+    build:
+      context: ./backend
+
+    container_name: phonebook-backend
+
+    ports:
+      - "8000:8000"
+
+    environment:
+      DATABASE_URL: postgresql://postgres:RoKo%402024@db:5432/phonebook_db
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+    restart: on-failure
+
+
+  frontend:
+    build:
+      context: ./frontend
+
+    container_name: phonebook-frontend
+
+    ports:
+      - "5173:5173"
+
+    depends_on:
+      - backend
+
+
+volumes:
+  postgres_data:
