@@ -71,6 +71,3 @@ Available APIs:
 ```bash
 docker compose down
 ```
-
-```
-```
