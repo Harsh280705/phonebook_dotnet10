@@ -1496,3 +1496,13 @@
 }
 
 }
+
+.pagination-controls {
+  display: flex;
+  gap: 12px;
+}
+
+.load-more-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}

@@ -28,9 +28,6 @@ services:
 
     container_name: phonebook-backend
 
-    ports:
-      - "8000:8000"
-
     environment:
       DATABASE_URL: postgresql://postgres:RoKo%402024@db:5432/phonebook_db
 
@@ -48,7 +45,7 @@ services:
     container_name: phonebook-frontend
 
     ports:
-      - "5173:5173"
+      - "80:80"
 
     depends_on:
       - backend

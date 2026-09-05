@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { onMounted, ref } from "vue";
 
 
 
@@ -10,7 +10,10 @@ const loading = ref(true);
 const errorMessage = ref("");
 
 const searchQuery = ref("");
-const visibleCount = ref(6);
+const currentPage = ref(1);
+const pageSize = ref(10);
+const totalContacts = ref(0);
+const totalPages = ref(1);
 
 const selectedContact = ref(null);
 
@@ -79,18 +82,38 @@ const validateAddress = (address) => {
    FETCH CONTACTS
 ------------------------------ */
 
-async function fetchContacts() {
+async function fetchContacts(requestedPage = currentPage.value) {
   loading.value = true;
   errorMessage.value = "";
 
   try {
-    const response = await fetch(API_URL);
+    const params = new URLSearchParams({
+      page: String(requestedPage),
+      limit: String(pageSize.value)
+    });
+
+    if (searchQuery.value.trim()) {
+      params.set("search", searchQuery.value.trim());
+    }
+
+    const response = await fetch(`${API_URL}?${params}`);
 
     if (!response.ok) {
       throw new Error("Unable to load contacts");
     }
 
-    contacts.value = await response.json();
+    const data = await response.json();
+
+    if (requestedPage > data.total_pages) {
+      currentPage.value = data.total_pages;
+      await fetchContacts(data.total_pages);
+      return;
+    }
+
+    contacts.value = data.items;
+    currentPage.value = data.page;
+    totalContacts.value = data.total;
+    totalPages.value = data.total_pages;
 
   } catch (error) {
     errorMessage.value = error.message;
@@ -100,55 +123,12 @@ async function fetchContacts() {
 }
 
 
-/* -----------------------------
-   SORT + SEARCH
------------------------------- */
+function goToPage(page) {
+  if (page < 1 || page > totalPages.value || page === currentPage.value) {
+    return;
+  }
 
-const filteredContacts = computed(() => {
-  const query = searchQuery.value.toLowerCase().trim();
-
-  return [...contacts.value]
-    .sort((a, b) =>
-      a.name.localeCompare(b.name)
-    )
-    .filter((contact) => {
-      if (!query) return true;
-
-      return (
-        contact.name.toLowerCase().includes(query) ||
-        contact.phone_number.includes(query) ||
-        (contact.email &&
-          contact.email.toLowerCase().includes(query))
-      );
-    });
-});
-
-
-const displayedContacts = computed(() => {
-  return filteredContacts.value.slice(
-    0,
-    visibleCount.value
-  );
-});
-
-
-const hasMoreContacts = computed(() => {
-  return (
-    visibleCount.value <
-    filteredContacts.value.length
-  );
-});
-
-
-function loadMore() {
-  visibleCount.value += 6;
-}
-
-
-/* Reset pagination when searching */
-
-function resetVisibleContacts() {
-  visibleCount.value = 6;
+  fetchContacts(page);
 }
 
 
@@ -377,7 +357,8 @@ async function saveContact() {
     }
 
 
-    await fetchContacts();
+    currentPage.value = 1;
+    await fetchContacts(1);
 
     closeForm();
 
@@ -437,7 +418,8 @@ async function deleteContact(contact) {
 
     closeContact();
 
-    await fetchContacts();
+    currentPage.value = 1;
+    await fetchContacts(1);
 
 
   } catch (error) {
@@ -470,7 +452,8 @@ function getInitials(name) {
 ------------------------------ */
 
 function handleSearch() {
-  visibleCount.value = 6;
+  currentPage.value = 1;
+  fetchContacts(1);
 }
 
 
@@ -577,7 +560,7 @@ onMounted(() => {
         <div class="network-line line-three"></div>
 
         <div class="network-node node-main">
-          {{ contacts.length }}
+          {{ totalContacts }}
         </div>
 
         <div class="network-node node-one"></div>
@@ -618,7 +601,7 @@ onMounted(() => {
 
         <div class="contact-count">
 
-          {{ filteredContacts.length }}
+          {{ totalContacts }}
 
           <span>
             people
@@ -648,7 +631,7 @@ onMounted(() => {
         <button
           v-if="searchQuery"
           class="clear-search"
-          @click="searchQuery = ''; resetVisibleContacts()"
+          @click="searchQuery = ''; handleSearch()"
         >
           ×
         </button>
@@ -703,7 +686,7 @@ onMounted(() => {
 
       <div
         v-else-if="
-          filteredContacts.length === 0
+          contacts.length === 0
         "
         class="empty-state"
       >
@@ -752,7 +735,7 @@ onMounted(() => {
       >
 
         <article
-          v-for="contact in displayedContacts"
+          v-for="contact in contacts"
           :key="contact.id"
           class="contact-card"
           @click="openContact(contact)"
@@ -827,43 +810,44 @@ onMounted(() => {
 
 
 
-      <!-- LOAD MORE -->
+      <!-- PAGINATION -->
 
       <div
         v-if="
           !loading &&
-          hasMoreContacts
+          totalContacts > 0
         "
         class="load-more-wrapper"
       >
 
         <p>
 
-          Showing
+          Page {{ currentPage }} of {{ totalPages }}
 
-          {{ displayedContacts.length }}
-
-          of
-
-          {{ filteredContacts.length }}
-
-          contacts
+          ({{ totalContacts }} contacts)
 
         </p>
 
 
-        <button
-          class="load-more-button"
-          @click="loadMore"
-        >
+        <div class="pagination-controls">
 
-          See more
+          <button
+            class="load-more-button"
+            :disabled="currentPage === 1"
+            @click="goToPage(currentPage - 1)"
+          >
+            Previous
+          </button>
 
-          <span>
-            ↓
-          </span>
+          <button
+            class="load-more-button"
+            :disabled="currentPage === totalPages"
+            @click="goToPage(currentPage + 1)"
+          >
+            Next
+          </button>
 
-        </button>
+        </div>
 
       </div>
 

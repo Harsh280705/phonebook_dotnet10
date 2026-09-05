@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import or_
 
 from app.database.connection import get_db
 from app.models.contact import Contact
 from app.schemas.contact import (
     ContactCreate,
+    ContactPage,
     ContactResponse,
     ContactUpdate
 )
@@ -81,19 +83,45 @@ def create_contact(
 # GET ALL CONTACTS
 @router.get(
     "/",
-    response_model=list[ContactResponse]
+    response_model=ContactPage
 )
 def get_contacts(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    search: str | None = None
 ):
 
+    query = db.query(Contact)
+
+    if search and search.strip():
+        search_pattern = f"%{search.strip()}%"
+        query = query.filter(
+            or_(
+                Contact.name.ilike(search_pattern),
+                Contact.phone_number.ilike(search_pattern),
+                Contact.email.ilike(search_pattern)
+            )
+        )
+
+    total = query.count()
+    total_pages = max((total + limit - 1) // limit, 1)
+
     contacts = (
-        db.query(Contact)
+        query
         .order_by(Contact.name.asc())
+        .offset((page - 1) * limit)
+        .limit(limit)
         .all()
     )
 
-    return contacts
+    return {
+        "items": contacts,
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "total_pages": total_pages
+    }
 
 
 # GET SINGLE CONTACT

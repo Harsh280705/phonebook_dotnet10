@@ -141,3 +141,16 @@ class ContactResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ContactPage(BaseModel):
+
+    items: list[ContactResponse]
+
+    page: int
+
+    limit: int
+
+    total: int
+
+    total_pages: int
