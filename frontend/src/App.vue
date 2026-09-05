@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from "vue";
 
 
 
-const API_URL = "http://127.0.0.1:8000/contacts/";
+const API_URL = "/api/contacts/";
 
 const contacts = ref([]);
 const loading = ref(true);
