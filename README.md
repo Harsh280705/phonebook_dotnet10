@@ -45,20 +45,31 @@ http://localhost
 docker compose down
 ```
 
+## Testing
+
 Run all Playwright tests:
 
+```bash
 npm run test:e2e
+```
 
 Run tests with the browser visible:
 
+```bash
 npm run test:e2e:headed
+```
 
 Run a specific test file:
 
+```bash
 npx playwright test tests/auth.spec.js
+```
 
 View the HTML test report:
 
+```bash
 npm run test:e2e:report
+```
 
 The Playwright tests cover authentication, contacts, import/export, and pagination.
+
