@@ -1,25 +1,44 @@
-# Phonebook Application
+# 📞 Phonebook Application
 
-A full-stack Phonebook Application built using:
+A full-stack Phonebook Application built using **Vue.js, FastAPI, PostgreSQL, SQLAlchemy, and Docker**. Users can add, view, update, and delete contacts through a simple web interface.
 
-- FastAPI (Python)
-- PostgreSQL
-- Vue.js
-- Docker
+## Setup
 
-## Features
+### Requirements
+- Docker Desktop
+- Git
 
-- Add contacts
-- View contacts
-- Update contacts
-- Delete contacts
+Clone the repository:
 
-## Project Structure
+```bash
+git clone <your-repository-url>
+cd Phonebook-app
 
-- `backend/` - FastAPI backend
-- `frontend/` - Vue.js frontend
-- `docker-compose.yml` - Docker service configuration
+Run Using Docker
 
-## Development Status
+Build and start the application:
 
-Project setup in progress.
+docker compose up --build
+
+Open:
+
+Frontend: http://localhost:5173
+Backend: http://localhost:8000
+API Docs: http://localhost:8000/docs
+
+To stop:
+
+docker compose down
+Testing
+
+Test the application using the frontend or FastAPI Swagger UI:
+
+http://localhost:8000/docs
+
+Available APIs:
+
+GET /contacts/
+POST /contacts/
+GET /contacts/{id}
+PUT /contacts/{id}
+DELETE /contacts/{id}
