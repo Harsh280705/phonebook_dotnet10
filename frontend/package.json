@@ -6,12 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
     "vue": "^3.5.41"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@vitejs/plugin-vue": "^6.0.8",
     "vite": "^8.2.2"
   }
