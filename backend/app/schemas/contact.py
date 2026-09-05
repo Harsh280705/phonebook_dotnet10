@@ -55,13 +55,16 @@ class ContactBase(BaseModel):
         value = value.strip()
 
 
-        if not re.match(
-            r"^\+[1-9]\d{7,14}$",
-            value
-        ):
+        if not re.fullmatch(r"\+?[0-9()\s-]+", value):
 
             raise ValueError(
-                "Phone number must include a country code. Example: +919876543210"
+                "Phone number may contain digits, a leading +, spaces, hyphens, or parentheses."
+            )
+
+        digit_count = len(re.sub(r"\D", "", value))
+        if digit_count < 8 or digit_count > 15:
+            raise ValueError(
+                "Phone number must contain between 8 and 15 digits."
             )
 
 

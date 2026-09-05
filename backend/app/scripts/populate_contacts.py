@@ -2,6 +2,7 @@ from faker import Faker
 
 from app.database.connection import Base, SessionLocal, engine
 from app.models.contact import Contact
+from app.models.user import User
 
 
 TARGET_COUNT = 1000
@@ -16,6 +17,7 @@ def populate_contacts():
     try:
         existing_count = db.query(Contact).count()
         records_needed = max(TARGET_COUNT - existing_count, 0)
+        owner = db.query(User).order_by(User.id.asc()).first()
 
         if records_needed == 0:
             print(f"Database already contains {existing_count} contacts.")
@@ -45,7 +47,8 @@ def populate_contacts():
                     name=f"{fake.first_name()} {fake.last_name()}",
                     phone_number=phone_number,
                     email=email,
-                    address=fake.address().replace("\n", ", ")[:255]
+                    address=fake.address().replace("\n", ", ")[:255],
+                    user_id=owner.id if owner else None
                 )
             )
 

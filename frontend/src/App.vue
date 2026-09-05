@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 
 
 
@@ -14,6 +14,22 @@ const currentPage = ref(1);
 const pageSize = ref(10);
 const totalContacts = ref(0);
 const totalPages = ref(1);
+
+const authReady = ref(false);
+const currentUser = ref(null);
+const authMode = ref("login");
+const authLoading = ref(false);
+const authError = ref("");
+const authForm = ref({
+  username: "",
+  email: "",
+  password: ""
+});
+
+const importInput = ref(null);
+const importing = ref(false);
+const importError = ref("");
+const importResult = ref(null);
 
 const selectedContact = ref(null);
 
@@ -30,6 +46,23 @@ const form = ref({
   address: ""
 });
 
+const visiblePages = computed(() => {
+  if (totalPages.value <= 7) {
+    return Array.from({ length: totalPages.value }, (_, index) => index + 1);
+  }
+
+  const pages = [1];
+  const start = Math.max(2, currentPage.value - 1);
+  const end = Math.min(totalPages.value - 1, currentPage.value + 1);
+
+  if (start > 2) pages.push("...");
+  for (let page = start; page <= end; page += 1) pages.push(page);
+  if (end < totalPages.value - 1) pages.push("...");
+  pages.push(totalPages.value);
+
+  return pages;
+});
+
 const validateName = (name) => {
   const nameRegex = /^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s'-]{1,99}$/;
 
@@ -39,17 +72,25 @@ const validateName = (name) => {
 
 const validatePhone = (phone) => {
   /*
-    E.164-style international format
+    Textual phone format with 8-15 digits
 
     Examples:
     +919876543210
     +14155552671
     +447911123456
+    0123456789
+    +1 555 123 4567
   */
 
-  const phoneRegex = /^\+[1-9]\d{7,14}$/;
+  const cleanedPhone = phone.trim();
+  const phoneRegex = /^\+?[0-9()\s-]+$/;
+  const digitCount = cleanedPhone.replace(/\D/g, "").length;
 
-  return phoneRegex.test(phone.trim());
+  return (
+    phoneRegex.test(cleanedPhone) &&
+    digitCount >= 8 &&
+    digitCount <= 15
+  );
 };
 
 
@@ -123,12 +164,141 @@ async function fetchContacts(requestedPage = currentPage.value) {
 }
 
 
+async function checkAuthentication() {
+  try {
+    const response = await fetch("/api/auth/me");
+    if (response.ok) {
+      currentUser.value = await response.json();
+      await fetchContacts();
+    }
+  } finally {
+    authReady.value = true;
+  }
+}
+
+
+async function submitAuthentication() {
+  authLoading.value = true;
+  authError.value = "";
+
+  const endpoint = authMode.value === "login"
+    ? "/api/auth/login"
+    : "/api/auth/register";
+
+  const payload = authMode.value === "login"
+    ? {
+        identifier: authForm.value.username,
+        password: authForm.value.password
+      }
+    : authForm.value;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      authError.value = Array.isArray(data?.detail)
+        ? data.detail.map((item) => item.msg).join(", ")
+        : data?.detail || "Authentication failed.";
+      return;
+    }
+
+    currentUser.value = data;
+    authForm.value = { username: "", email: "", password: "" };
+    await fetchContacts(1);
+  } catch (error) {
+    authError.value = error.message || "Authentication failed.";
+  } finally {
+    authReady.value = true;
+    authLoading.value = false;
+  }
+}
+
+
+async function logout() {
+  await fetch("/api/auth/logout", { method: "POST" });
+  currentUser.value = null;
+  contacts.value = [];
+  totalContacts.value = 0;
+}
+
+
+async function exportContacts() {
+  const response = await fetch("/api/contacts/export");
+  if (!response.ok) return;
+
+  const blob = await response.blob();
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "phonebook.csv";
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+
+function openImportPicker() {
+  importError.value = "";
+  importInput.value?.click();
+}
+
+
+async function importContacts(event) {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+
+  if (!file) {
+    importError.value = "Please select a CSV file.";
+    return;
+  }
+
+  if (!file.name.toLowerCase().endsWith(".csv")) {
+    importError.value = "Please select a CSV file.";
+    return;
+  }
+
+  importing.value = true;
+  importError.value = "";
+  importResult.value = null;
+
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch("/api/contacts/import", {
+      method: "POST",
+      body: formData
+    });
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new Error(data?.detail || "Unable to import contacts.");
+    }
+
+    importResult.value = data;
+    currentPage.value = 1;
+    await fetchContacts(1);
+  } catch (error) {
+    importError.value = error.message || "Unable to import contacts.";
+  } finally {
+    importing.value = false;
+  }
+}
+
+
 function goToPage(page) {
   if (page < 1 || page > totalPages.value || page === currentPage.value) {
     return;
   }
 
   fetchContacts(page);
+}
+
+
+function selectPage(page) {
+  if (typeof page === "number") goToPage(page);
 }
 
 
@@ -240,7 +410,7 @@ async function saveContact() {
 
   if (!validatePhone(phone)) {
     formError.value =
-      "Enter a valid international phone number with a country code, for example +919876543210.";
+      "Enter a valid phone number with 8 to 15 digits. Spaces, hyphens, parentheses, and a leading + are allowed.";
 
     return;
   }
@@ -462,14 +632,64 @@ function handleSearch() {
 ------------------------------ */
 
 onMounted(() => {
-  fetchContacts();
+  checkAuthentication();
 });
 </script>
 
 
 <template>
 
-  <main class="app-shell">
+  <main
+    v-if="!authReady"
+    class="app-shell loading-state"
+  >
+    <div class="loader"></div>
+    <p>Checking your session...</p>
+  </main>
+
+  <main
+    v-else-if="!currentUser"
+    class="auth-shell"
+  >
+    <form class="auth-card" @submit.prevent="submitAuthentication">
+      <p class="hero-kicker">PERSONAL CONTACT SPACE</p>
+      <h1>{{ authMode === "login" ? "Welcome back" : "Create your account" }}</h1>
+      <p class="auth-subtitle">
+        {{ authMode === "login" ? "Sign in to open your phonebook." : "Create a secure PostgreSQL-backed account." }}
+      </p>
+
+      <div v-if="authError" class="form-error">{{ authError }}</div>
+
+      <label>
+        {{ authMode === "login" ? "Username or email" : "Username" }}
+        <input v-model="authForm.username" required autocomplete="username" />
+      </label>
+
+      <label v-if="authMode === 'register'">
+        Email
+        <input v-model="authForm.email" type="email" required autocomplete="email" />
+      </label>
+
+      <label>
+        Password
+        <input v-model="authForm.password" type="password" required minlength="8" autocomplete="current-password" />
+      </label>
+
+      <button class="save-button" type="submit" :disabled="authLoading">
+        {{ authLoading ? "Please wait..." : authMode === "login" ? "Sign in" : "Register" }}
+      </button>
+
+      <button
+        class="auth-switch"
+        type="button"
+        @click="authMode = authMode === 'login' ? 'register' : 'login'; authError = ''"
+      >
+        {{ authMode === "login" ? "Create an account" : "Back to sign in" }}
+      </button>
+    </form>
+  </main>
+
+  <main v-else class="app-shell">
 
 
     <!-- BACKGROUND DECORATION -->
@@ -520,6 +740,25 @@ onMounted(() => {
         Add contact
 
       </button>
+
+      <div class="account-actions">
+        <input
+          ref="importInput"
+          type="file"
+          accept=".csv,text/csv"
+          hidden
+          @change="importContacts"
+        />
+        <button
+          class="header-action"
+          :disabled="importing"
+          @click="openImportPicker"
+        >
+          {{ importing ? "Importing..." : "Import CSV" }}
+        </button>
+        <button class="header-action" @click="exportContacts">Export CSV</button>
+        <button class="header-action" @click="logout">Log out</button>
+      </div>
 
     </header>
 
@@ -636,6 +875,30 @@ onMounted(() => {
           ×
         </button>
 
+      </div>
+
+      <div v-if="importError" class="form-error import-message">
+        {{ importError }}
+      </div>
+
+      <div v-if="importResult" class="import-summary">
+        <strong>Import complete</strong>
+        <span>Total rows: {{ importResult.total_rows }}</span>
+        <span>Imported: {{ importResult.imported }}</span>
+        <span>Duplicates skipped: {{ importResult.skipped_duplicates }}</span>
+        <span>Invalid rows: {{ importResult.invalid_rows }}</span>
+        <span v-if="importResult.invalid_phone_numbers">
+          Invalid phones: {{ importResult.invalid_phone_numbers }}
+        </span>
+        <span v-if="importResult.invalid_emails">
+          Invalid emails: {{ importResult.invalid_emails }}
+        </span>
+        <span v-if="importResult.invalid_names">
+          Invalid names: {{ importResult.invalid_names }}
+        </span>
+        <span v-if="importResult.invalid_addresses">
+          Invalid addresses: {{ importResult.invalid_addresses }}
+        </span>
       </div>
 
 
@@ -838,6 +1101,19 @@ onMounted(() => {
           >
             Previous
           </button>
+
+          <div class="page-numbers">
+          <button
+            v-for="(page, index) in visiblePages"
+            :key="`${page}-${index}`"
+            class="page-number"
+            :class="{ active: page === currentPage, ellipsis: page === '...' }"
+            :disabled="page === '...'"
+            @click="selectPage(page)"
+          >
+            {{ page }}
+          </button>
+          </div>
 
           <button
             class="load-more-button"

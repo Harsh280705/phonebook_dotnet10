@@ -2,15 +2,27 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.database.connection import Base, engine
 from app.models.contact import Contact
+from app.models.user import AuthSession, User
+from app.routes.auth import router as auth_router
 from app.routes.contacts import router as contacts_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    with engine.begin() as connection:
+        connection.execute(text(
+            "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS "
+            "user_id INTEGER REFERENCES users(id)"
+        ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_contacts_user_id "
+            "ON contacts (user_id)"
+        ))
     yield
 
 
@@ -37,6 +49,7 @@ app.add_middleware(
 
 
 app.include_router(contacts_router)
+app.include_router(auth_router)
 
 
 @app.get("/")
