@@ -1,6 +1,18 @@
 # 📞 Phonebook Application
 
-A full-stack Phonebook Application built using **Vue.js, FastAPI, PostgreSQL, SQLAlchemy, Docker, and Nginx**.
+A full-stack Phonebook Application built using **Vue.js, .NET 10, PostgreSQL, Docker, and Nginx**.
+
+## Architecture
+
+```text
+Browser
+   ↓
+Nginx (Vue.js frontend)
+   ↓  /api
+.NET 10 ASP.NET Core Web API
+   ↓
+PostgreSQL
+```
 
 ## Features
 
@@ -45,9 +57,35 @@ http://localhost
 docker compose down
 ```
 
+Rebuild after backend or frontend changes:
+
+```bash
+docker compose up --build
+```
+
+## Populate Fake Contacts
+
+With the stack running:
+
+```bash
+docker compose exec backend dotnet Phonebook.Api.dll populate
+```
+
+This adds contacts until the database has approximately 1000 rows. Existing contacts are left in place.
+
 ## Testing
 
-Run all Playwright tests:
+### Backend API tests
+
+The API tests use an isolated `phonebook_test` database on the same PostgreSQL instance. They do not modify production data.
+
+```bash
+docker compose --profile test run --rm api-tests
+```
+
+### Playwright end-to-end tests
+
+From the `frontend` directory, with the application running at `http://localhost`:
 
 ```bash
 npm run test:e2e
@@ -72,4 +110,3 @@ npm run test:e2e:report
 ```
 
 The Playwright tests cover authentication, contacts, import/export, and pagination.
-

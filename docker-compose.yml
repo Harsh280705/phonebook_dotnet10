@@ -30,6 +30,7 @@ services:
 
     environment:
       DATABASE_URL: postgresql://postgres:RoKo%402024@db:5432/phonebook_db
+      ASPNETCORE_URLS: http://0.0.0.0:8000
 
     depends_on:
       db:
@@ -49,6 +50,23 @@ services:
 
     depends_on:
       - backend
+
+
+  api-tests:
+    profiles: ["test"]
+    image: mcr.microsoft.com/dotnet/sdk:10.0
+    working_dir: /src
+    volumes:
+      - ./backend:/src
+    environment:
+      TEST_POSTGRES_HOST: db
+      TEST_POSTGRES_PORT: "5432"
+      TEST_POSTGRES_USER: postgres
+      TEST_POSTGRES_PASSWORD: RoKo@2024
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["dotnet", "test", "Phonebook.slnx", "--nologo"]
 
 
 volumes:

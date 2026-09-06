@@ -1,20 +1,23 @@
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-
-# Virtual Environment
-venv/
-.venv/
-
-# Environment Variables
+# Environment
 .env
+.venv/
+venv/
 
 # Node.js
 node_modules/
 
 # Vue build files
 dist/
+
+# .NET
+bin/
+obj/
+TestResults/
+*.user
+
+# Playwright
+playwright-report/
+test-results/
 
 # IDE
 .vscode/
