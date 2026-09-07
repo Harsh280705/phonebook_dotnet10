@@ -33,6 +33,22 @@ using (var scope = app.Services.CreateScope())
     db.Database.EnsureCreated();
     db.Database.ExecuteSqlRaw("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)");
     db.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS ix_contacts_user_id ON contacts (user_id)");
+    db.Database.ExecuteSqlRaw("""
+        CREATE TABLE IF NOT EXISTS tags (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            name VARCHAR(50) NOT NULL
+        )
+        """);
+    db.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS ix_tags_user_id ON tags (user_id)");
+    db.Database.ExecuteSqlRaw("CREATE UNIQUE INDEX IF NOT EXISTS ux_tags_user_id_lower_name ON tags (user_id, lower(name))");
+    db.Database.ExecuteSqlRaw("""
+        CREATE TABLE IF NOT EXISTS contact_tags (
+            contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+            tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            PRIMARY KEY (contact_id, tag_id)
+        )
+        """);
 }
 
 if (args.Any(value => string.Equals(value, "populate", StringComparison.OrdinalIgnoreCase)))
@@ -95,7 +111,63 @@ app.MapPost("/auth/logout", async (HttpContext http, ApplicationDbContext db, Se
     return Results.Ok(new { Message = "Logged out successfully." });
 });
 
-app.MapGet("/contacts/", async (HttpContext http, ApplicationDbContext db, SecurityService security, int page = 1, int limit = 10, string? search = null) =>
+app.MapGet("/tags/", async (HttpContext http, ApplicationDbContext db, SecurityService security) =>
+{
+    var user = await CurrentUser(http, db, security);
+    if (user is null) return Unauthorized("Authentication required.");
+    var tags = await db.Tags.Where(x => x.UserId == user.Id).OrderBy(x => x.Name).Select(x => new TagResponse(x.Id, x.Name)).ToListAsync();
+    return Results.Ok(tags);
+});
+
+app.MapPost("/tags/", async (TagRequest request, HttpContext http, ApplicationDbContext db, SecurityService security) =>
+{
+    var user = await CurrentUser(http, db, security);
+    if (user is null) return Unauthorized("Authentication required.");
+    var validation = ValidateTagName(request.Name, out var name);
+    if (validation is not null) return validation;
+    if (await db.Tags.AnyAsync(x => x.UserId == user.Id && x.Name.ToLower() == name.ToLower()))
+    {
+        return Conflict("A tag with this name already exists.");
+    }
+
+    var tag = new Tag { UserId = user.Id, Name = name };
+    db.Tags.Add(tag);
+    try { await db.SaveChangesAsync(); }
+    catch (DbUpdateException) { return Conflict("A tag with this name already exists."); }
+    return Results.Json(new TagResponse(tag.Id, tag.Name), statusCode: StatusCodes.Status201Created);
+});
+
+app.MapPut("/tags/{id:int}", async (int id, TagRequest request, HttpContext http, ApplicationDbContext db, SecurityService security) =>
+{
+    var user = await CurrentUser(http, db, security);
+    if (user is null) return Unauthorized("Authentication required.");
+    var tag = await db.Tags.FirstOrDefaultAsync(x => x.Id == id && x.UserId == user.Id);
+    if (tag is null) return Results.NotFound(new ErrorResponse("Tag not found."));
+    var validation = ValidateTagName(request.Name, out var name);
+    if (validation is not null) return validation;
+    if (await db.Tags.AnyAsync(x => x.UserId == user.Id && x.Id != id && x.Name.ToLower() == name.ToLower()))
+    {
+        return Conflict("A tag with this name already exists.");
+    }
+
+    tag.Name = name;
+    try { await db.SaveChangesAsync(); }
+    catch (DbUpdateException) { return Conflict("A tag with this name already exists."); }
+    return Results.Ok(new TagResponse(tag.Id, tag.Name));
+});
+
+app.MapDelete("/tags/{id:int}", async (int id, HttpContext http, ApplicationDbContext db, SecurityService security) =>
+{
+    var user = await CurrentUser(http, db, security);
+    if (user is null) return Unauthorized("Authentication required.");
+    var tag = await db.Tags.FirstOrDefaultAsync(x => x.Id == id && x.UserId == user.Id);
+    if (tag is null) return Results.NotFound(new ErrorResponse("Tag not found."));
+    db.Tags.Remove(tag);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { Message = "Tag deleted successfully." });
+});
+
+app.MapGet("/contacts/", async (HttpContext http, ApplicationDbContext db, SecurityService security, int page = 1, int limit = 10, string? search = null, int[]? tag_ids = null) =>
 {
     var user = await CurrentUser(http, db, security);
     if (user is null) return Unauthorized("Authentication required.");
@@ -110,10 +182,18 @@ app.MapGet("/contacts/", async (HttpContext http, ApplicationDbContext db, Secur
             EF.Functions.ILike(x.PhoneNumber, pattern) ||
             (x.Email != null && EF.Functions.ILike(x.Email, pattern)));
     }
+    if (tag_ids is { Length: > 0 })
+    {
+        foreach (var tagId in tag_ids.Distinct())
+        {
+            var requiredTagId = tagId;
+            query = query.Where(x => x.ContactTags.Any(ct => ct.TagId == requiredTagId));
+        }
+    }
     var total = await query.CountAsync();
     var totalPages = Math.Max((total + limit - 1) / limit, 1);
     var contacts = await query.OrderBy(x => x.Name).Skip((page - 1) * limit).Take(limit).ToListAsync();
-    return Results.Ok(new ContactPage(contacts.Select(ToContactResponse).ToList(), page, limit, total, totalPages));
+    return Results.Ok(new ContactPage(await ToContactResponsesAsync(db, contacts), page, limit, total, totalPages));
 });
 
 app.MapPost("/contacts/", async (ContactRequest request, HttpContext http, ApplicationDbContext db, SecurityService security) =>
@@ -122,6 +202,8 @@ app.MapPost("/contacts/", async (ContactRequest request, HttpContext http, Appli
     if (user is null) return Unauthorized("Authentication required.");
     var validation = ValidateContact(request);
     if (validation is not null) return validation;
+    var tagError = await EnsureOwnedTagsAsync(db, request.TagIds, user.Id);
+    if (tagError is not null) return tagError;
     if (await db.Contacts.AnyAsync(x => x.PhoneNumber == request.PhoneNumber)) return Conflict("This phone number already exists.");
     if (!string.IsNullOrWhiteSpace(request.Email) && await db.Contacts.AnyAsync(x => x.Email == request.Email)) return Conflict("This email address already exists.");
 
@@ -129,7 +211,12 @@ app.MapPost("/contacts/", async (ContactRequest request, HttpContext http, Appli
     db.Contacts.Add(contact);
     try { await db.SaveChangesAsync(); }
     catch (DbUpdateException) { return Conflict("A contact with this phone number or email already exists."); }
-    return Results.Json(ToContactResponse(contact), statusCode: StatusCodes.Status201Created);
+    if (request.TagIds is not null)
+    {
+        await ReplaceContactTagsAsync(db, contact.Id, request.TagIds);
+        await db.SaveChangesAsync();
+    }
+    return Results.Json(await ToContactResponseAsync(db, contact), statusCode: StatusCodes.Status201Created);
 });
 
 app.MapGet("/contacts/export", async (HttpContext http, ApplicationDbContext db, SecurityService security) =>
@@ -270,7 +357,7 @@ async Task<IResult> ContactById(int id, HttpContext http, ApplicationDbContext d
     var user = await CurrentUser(http, db, security);
     if (user is null) return Unauthorized("Authentication required.");
     var contact = await db.Contacts.FirstOrDefaultAsync(x => x.Id == id && x.UserId == user.Id);
-    return contact is null ? Results.NotFound(new ErrorResponse("Contact not found.")) : Results.Ok(ToContactResponse(contact));
+    return contact is null ? Results.NotFound(new ErrorResponse("Contact not found.")) : Results.Ok(await ToContactResponseAsync(db, contact));
 }
 
 async Task<IResult> UpdateContact(int id, ContactRequest request, HttpContext http, ApplicationDbContext db, SecurityService security)
@@ -281,6 +368,8 @@ async Task<IResult> UpdateContact(int id, ContactRequest request, HttpContext ht
     if (contact is null) return Results.NotFound(new ErrorResponse("Contact not found."));
     var validation = ValidateContactUpdate(request);
     if (validation is not null) return validation;
+    var tagError = await EnsureOwnedTagsAsync(db, request.TagIds, user.Id);
+    if (tagError is not null) return tagError;
     if (request.PhoneNumber is not null && await db.Contacts.AnyAsync(x => x.PhoneNumber == request.PhoneNumber && x.Id != id))
     {
         return Conflict("This phone number already exists.");
@@ -293,9 +382,10 @@ async Task<IResult> UpdateContact(int id, ContactRequest request, HttpContext ht
     if (request.PhoneNumber is not null) contact.PhoneNumber = request.PhoneNumber.Trim();
     if (request.Email is not null) contact.Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
     if (request.Address is not null) contact.Address = string.IsNullOrWhiteSpace(request.Address) ? null : request.Address.Trim();
+    await ReplaceContactTagsAsync(db, contact.Id, request.TagIds);
     try { await db.SaveChangesAsync(); }
     catch (DbUpdateException) { return Conflict("A contact with this phone number or email already exists."); }
-    return Results.Ok(ToContactResponse(contact));
+    return Results.Ok(await ToContactResponseAsync(db, contact));
 }
 
 async Task<IResult> DeleteContact(int id, HttpContext http, ApplicationDbContext db, SecurityService security)
@@ -340,7 +430,66 @@ static CookieOptions SessionCookieOptions(TimeSpan maxAge) => new()
 };
 
 static UserResponse ToUserResponse(User user) => new(user.Id, user.Username, user.Email, user.CreatedAt);
-static ContactResponse ToContactResponse(Contact contact) => new(contact.Id, contact.Name, contact.PhoneNumber, contact.Email, contact.Address, contact.CreatedAt);
+static ContactResponse ToContactResponse(Contact contact, IReadOnlyList<TagResponse>? tags = null) =>
+    new(contact.Id, contact.Name, contact.PhoneNumber, contact.Email, contact.Address, contact.CreatedAt, tags ?? []);
+
+static async Task<ContactResponse> ToContactResponseAsync(ApplicationDbContext db, Contact contact)
+{
+    var tags = await LoadTagsByContactAsync(db, [contact.Id]);
+    return ToContactResponse(contact, tags.GetValueOrDefault(contact.Id) ?? []);
+}
+
+static async Task<IReadOnlyList<ContactResponse>> ToContactResponsesAsync(ApplicationDbContext db, IReadOnlyList<Contact> contacts)
+{
+    var tags = await LoadTagsByContactAsync(db, contacts.Select(x => x.Id).ToList());
+    return contacts.Select(contact => ToContactResponse(contact, tags.GetValueOrDefault(contact.Id) ?? [])).ToList();
+}
+
+static async Task<Dictionary<int, IReadOnlyList<TagResponse>>> LoadTagsByContactAsync(ApplicationDbContext db, IReadOnlyList<int> contactIds)
+{
+    if (contactIds.Count == 0) return [];
+    var rows = await (
+        from ct in db.ContactTags
+        join tag in db.Tags on ct.TagId equals tag.Id
+        where contactIds.Contains(ct.ContactId)
+        orderby tag.Name
+        select new { ct.ContactId, Tag = new TagResponse(tag.Id, tag.Name) }
+    ).ToListAsync();
+    return rows
+        .GroupBy(x => x.ContactId)
+        .ToDictionary(group => group.Key, group => (IReadOnlyList<TagResponse>)group.Select(x => x.Tag).ToList());
+}
+
+static async Task<IResult?> EnsureOwnedTagsAsync(ApplicationDbContext db, IReadOnlyList<int>? tagIds, int userId)
+{
+    if (tagIds is null) return null;
+    var unique = tagIds.Distinct().ToList();
+    if (unique.Any(id => id <= 0)) return BadRequest("One or more tags were not found.");
+    if (unique.Count == 0) return null;
+    var ownedCount = await db.Tags.CountAsync(x => x.UserId == userId && unique.Contains(x.Id));
+    return ownedCount == unique.Count ? null : BadRequest("One or more tags were not found.");
+}
+
+static async Task ReplaceContactTagsAsync(ApplicationDbContext db, int contactId, IReadOnlyList<int>? tagIds)
+{
+    if (tagIds is null) return;
+    var unique = tagIds.Distinct().ToList();
+    await db.ContactTags.Where(x => x.ContactId == contactId).ExecuteDeleteAsync();
+    foreach (var tagId in unique)
+    {
+        db.ContactTags.Add(new ContactTag { ContactId = contactId, TagId = tagId });
+    }
+}
+
+static IResult? ValidateTagName(string? name, out string cleaned)
+{
+    cleaned = name?.Trim() ?? "";
+    if (cleaned.Length is < 1 or > 50 || !Regex.IsMatch(cleaned, "^[A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9\\s'-]{0,49}$"))
+    {
+        return Unprocessable("Tag name must be 1 to 50 characters and contain only letters, numbers, spaces, apostrophes or hyphens.");
+    }
+    return null;
+}
 static Contact ToContact(ContactRequest request, int userId) => new()
 {
     UserId = userId,

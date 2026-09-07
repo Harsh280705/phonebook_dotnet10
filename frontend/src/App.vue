@@ -43,7 +43,18 @@ const form = ref({
   name: "",
   phone_number: "",
   email: "",
-  address: ""
+  address: "",
+  tag_ids: []
+});
+
+const tags = ref([]);
+const selectedTagIds = ref([]);
+const showTagManager = ref(false);
+const tagSaving = ref(false);
+const tagError = ref("");
+const tagForm = ref({
+  id: null,
+  name: ""
 });
 
 const visiblePages = computed(() => {
@@ -137,6 +148,10 @@ async function fetchContacts(requestedPage = currentPage.value) {
       params.set("search", searchQuery.value.trim());
     }
 
+    for (const tagId of selectedTagIds.value) {
+      params.append("tag_ids", String(tagId));
+    }
+
     const response = await fetch(`${API_URL}?${params}`);
 
     if (!response.ok) {
@@ -169,7 +184,7 @@ async function checkAuthentication() {
     const response = await fetch("/api/auth/me");
     if (response.ok) {
       currentUser.value = await response.json();
-      await fetchContacts();
+      await Promise.all([fetchContacts(), fetchTags()]);
     }
   } finally {
     authReady.value = true;
@@ -209,7 +224,7 @@ async function submitAuthentication() {
 
     currentUser.value = data;
     authForm.value = { username: "", email: "", password: "" };
-    await fetchContacts(1);
+    await Promise.all([fetchContacts(1), fetchTags()]);
   } catch (error) {
     authError.value = error.message || "Authentication failed.";
   } finally {
@@ -223,6 +238,8 @@ async function logout() {
   await fetch("/api/auth/logout", { method: "POST" });
   currentUser.value = null;
   contacts.value = [];
+  tags.value = [];
+  selectedTagIds.value = [];
   totalContacts.value = 0;
 }
 
@@ -325,7 +342,8 @@ function resetForm() {
     name: "",
     phone_number: "",
     email: "",
-    address: ""
+    address: "",
+    tag_ids: []
   };
 
   formError.value = "";
@@ -348,7 +366,8 @@ function openEditForm(contact) {
     name: contact.name,
     phone_number: contact.phone_number,
     email: contact.email || "",
-    address: contact.address || ""
+    address: contact.address || "",
+    tag_ids: (contact.tags || []).map((tag) => tag.id)
   };
 
   formError.value = "";
@@ -445,7 +464,8 @@ async function saveContact() {
       name,
       phone_number: phone,
       email: email || null,
-      address: address || null
+      address: address || null,
+      tag_ids: form.value.tag_ids
     };
 
 
@@ -626,6 +646,95 @@ function handleSearch() {
   fetchContacts(1);
 }
 
+function toggleFilterTag(tagId) {
+  const selected = selectedTagIds.value.includes(tagId);
+  selectedTagIds.value = selected
+    ? selectedTagIds.value.filter((id) => id !== tagId)
+    : [...selectedTagIds.value, tagId];
+  handleSearch();
+}
+
+function toggleFormTag(tagId) {
+  const selected = form.value.tag_ids.includes(tagId);
+  form.value.tag_ids = selected
+    ? form.value.tag_ids.filter((id) => id !== tagId)
+    : [...form.value.tag_ids, tagId];
+}
+
+async function fetchTags() {
+  const response = await fetch("/api/tags/");
+  if (!response.ok) return;
+  tags.value = await response.json();
+}
+
+function openTagManager() {
+  tagForm.value = { id: null, name: "" };
+  tagError.value = "";
+  showTagManager.value = true;
+}
+
+function closeTagManager() {
+  showTagManager.value = false;
+  tagForm.value = { id: null, name: "" };
+  tagError.value = "";
+}
+
+function startEditTag(tag) {
+  tagForm.value = { id: tag.id, name: tag.name };
+  tagError.value = "";
+}
+
+async function saveTag() {
+  const name = tagForm.value.name.trim();
+  tagError.value = "";
+
+  if (!name) {
+    tagError.value = "Please enter a tag name.";
+    return;
+  }
+
+  tagSaving.value = true;
+  try {
+    const response = await fetch(
+      tagForm.value.id ? `/api/tags/${tagForm.value.id}` : "/api/tags/",
+      {
+        method: tagForm.value.id ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name })
+      }
+    );
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(data?.detail || "Unable to save tag.");
+    }
+    tagForm.value = { id: null, name: "" };
+    await fetchTags();
+    await fetchContacts(currentPage.value);
+  } catch (error) {
+    tagError.value = error.message || "Unable to save tag.";
+  } finally {
+    tagSaving.value = false;
+  }
+}
+
+async function deleteTag(tag) {
+  const confirmed = confirm(`Delete the "${tag.name}" tag? Contacts will keep their other tags.`);
+  if (!confirmed) return;
+
+  const response = await fetch(`/api/tags/${tag.id}`, { method: "DELETE" });
+  if (!response.ok) {
+    alert("Unable to delete tag.");
+    return;
+  }
+
+  selectedTagIds.value = selectedTagIds.value.filter((id) => id !== tag.id);
+  if (tagForm.value.id === tag.id) {
+    tagForm.value = { id: null, name: "" };
+  }
+  await fetchTags();
+  await fetchContacts(currentPage.value);
+}
+
 
 /* -----------------------------
    INITIAL LOAD
@@ -749,6 +858,7 @@ onMounted(() => {
           hidden
           @change="importContacts"
         />
+        <button class="header-action" @click="openTagManager">Tags</button>
         <button
           class="header-action"
           :disabled="importing"
@@ -877,6 +987,20 @@ onMounted(() => {
 
       </div>
 
+      <div v-if="tags.length" class="tag-filters">
+        <span class="tag-filters-label">Filter by tags</span>
+        <button
+          v-for="tag in tags"
+          :key="tag.id"
+          type="button"
+          class="tag-filter"
+          :class="{ active: selectedTagIds.includes(tag.id) }"
+          @click="toggleFilterTag(tag.id)"
+        >
+          {{ tag.name }}
+        </button>
+      </div>
+
       <div v-if="importError" class="form-error import-message">
         {{ importError }}
       </div>
@@ -960,7 +1084,7 @@ onMounted(() => {
 
         <h3>
           {{
-            searchQuery
+            searchQuery || selectedTagIds.length
               ? "No matching contacts"
               : "Your phonebook is empty"
           }}
@@ -969,8 +1093,8 @@ onMounted(() => {
         <p>
 
           {{
-            searchQuery
-              ? "Try a different name or number."
+            searchQuery || selectedTagIds.length
+              ? "Try a different name, number, or tag filter."
               : "Start building your network by adding your first contact."
           }}
 
@@ -978,7 +1102,7 @@ onMounted(() => {
 
 
         <button
-          v-if="!searchQuery"
+          v-if="!searchQuery && !selectedTagIds.length"
           @click="openCreateForm"
         >
           Add your first contact
@@ -1027,6 +1151,19 @@ onMounted(() => {
             <p class="phone">
               {{ contact.phone_number }}
             </p>
+
+            <div
+              v-if="contact.tags && contact.tags.length"
+              class="contact-tags"
+            >
+              <span
+                v-for="tag in contact.tags"
+                :key="tag.id"
+                class="tag-pill"
+              >
+                {{ tag.name }}
+              </span>
+            </div>
 
           </div>
 
@@ -1260,6 +1397,36 @@ onMounted(() => {
             </div>
 
 
+            <div
+              v-if="selectedContact.tags && selectedContact.tags.length"
+              class="detail-item"
+            >
+
+              <span>
+                #
+              </span>
+
+              <div>
+
+                <small>
+                  TAGS
+                </small>
+
+                <div class="contact-tags">
+                  <span
+                    v-for="tag in selectedContact.tags"
+                    :key="tag.id"
+                    class="tag-pill"
+                  >
+                    {{ tag.name }}
+                  </span>
+                </div>
+
+              </div>
+
+            </div>
+
+
           </div>
 
 
@@ -1441,6 +1608,30 @@ onMounted(() => {
 </label>
 
 
+<div class="tag-picker-field">
+  <span>Tags</span>
+
+  <div v-if="tags.length" class="tag-picker">
+    <label
+      v-for="tag in tags"
+      :key="tag.id"
+      class="tag-option"
+    >
+      <input
+        type="checkbox"
+        :checked="form.tag_ids.includes(tag.id)"
+        @change="toggleFormTag(tag.id)"
+      />
+      {{ tag.name }}
+    </label>
+  </div>
+
+  <small v-else class="input-hint">
+    Optional. Create tags from the Tags button, then assign them here.
+  </small>
+</div>
+
+
           </div>
 
 
@@ -1474,6 +1665,90 @@ onMounted(() => {
 
           </div>
 
+
+        </form>
+
+      </div>
+
+    </Transition>
+
+
+    <Transition name="modal">
+
+      <div
+        v-if="showTagManager"
+        class="form-overlay"
+        @click.self="closeTagManager"
+      >
+
+        <form
+          class="contact-form tag-manager"
+          @submit.prevent="saveTag"
+        >
+
+          <div class="form-header">
+            <div>
+              <p>YOUR TAGS</p>
+              <h2>Manage tags</h2>
+            </div>
+            <button
+              type="button"
+              class="form-close"
+              @click="closeTagManager"
+            >
+              ×
+            </button>
+          </div>
+
+          <div v-if="tagError" class="form-error">
+            {{ tagError }}
+          </div>
+
+          <label class="tag-name-field">
+            {{ tagForm.id ? "Rename tag" : "New tag" }}
+            <input
+              v-model="tagForm.name"
+              type="text"
+              maxlength="50"
+              placeholder="e.g. Work"
+            />
+          </label>
+
+          <div class="form-actions tag-form-actions">
+            <button
+              v-if="tagForm.id"
+              type="button"
+              class="cancel-button"
+              @click="tagForm = { id: null, name: '' }; tagError = ''"
+            >
+              Cancel rename
+            </button>
+            <button
+              type="submit"
+              class="save-button"
+              :disabled="tagSaving"
+            >
+              {{ tagSaving ? "Saving..." : tagForm.id ? "Save tag" : "Create tag" }}
+            </button>
+          </div>
+
+          <ul v-if="tags.length" class="tag-manager-list">
+            <li v-for="tag in tags" :key="tag.id">
+              <span>{{ tag.name }}</span>
+              <div>
+                <button type="button" class="header-action" @click="startEditTag(tag)">
+                  Rename
+                </button>
+                <button type="button" class="detail-delete tag-delete" @click="deleteTag(tag)">
+                  Delete
+                </button>
+              </div>
+            </li>
+          </ul>
+
+          <p v-else class="tag-empty">
+            No tags yet. Create one to start organizing contacts.
+          </p>
 
         </form>
 

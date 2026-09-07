@@ -11,11 +11,15 @@ public sealed record UserResponse(
     string Email,
     DateTime CreatedAt);
 
+public sealed record TagRequest(string Name);
+public sealed record TagResponse(int Id, string Name);
+
 public sealed record ContactRequest(
     string? Name,
     [property: JsonPropertyName("phone_number")] string? PhoneNumber,
     string? Email,
-    string? Address);
+    string? Address,
+    [property: JsonPropertyName("tag_ids")] IReadOnlyList<int>? TagIds = null);
 
 public sealed record ContactResponse(
     int Id,
@@ -23,7 +27,8 @@ public sealed record ContactResponse(
     [property: JsonPropertyName("phone_number")] string PhoneNumber,
     string? Email,
     string? Address,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    IReadOnlyList<TagResponse> Tags);
 
 public sealed record ContactPage(
     IReadOnlyList<ContactResponse> Items,

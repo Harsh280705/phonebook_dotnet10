@@ -9,4 +9,5 @@ public sealed class Contact
     public string? Email { get; set; }
     public string? Address { get; set; }
     public DateTime CreatedAt { get; set; }
+    public ICollection<ContactTag> ContactTags { get; set; } = [];
 }

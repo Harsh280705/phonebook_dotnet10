@@ -42,7 +42,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     {
         using var scope = Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        db.Database.ExecuteSqlRaw("TRUNCATE TABLE auth_sessions, contacts, users RESTART IDENTITY CASCADE");
+        db.Database.ExecuteSqlRaw("TRUNCATE TABLE auth_sessions, contact_tags, tags, contacts, users RESTART IDENTITY CASCADE");
     }
 }
 

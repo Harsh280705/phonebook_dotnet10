@@ -570,6 +570,149 @@
   font-size: 19px;
 }
 
+.tag-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: -16px 0 28px;
+}
+
+.tag-filters-label {
+  margin-right: 4px;
+  color: #8a8b98;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.tag-filter {
+  border: 1px solid #dedee8;
+  border-radius: 100px;
+  padding: 6px 12px;
+  background: white;
+  color: #5f6070;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tag-filter.active {
+  border-color: #7165e8;
+  background: #7165e8;
+  color: white;
+}
+
+.contact-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.tag-pill {
+  padding: 3px 8px;
+  border-radius: 100px;
+  background: #ece9ff;
+  color: #5d54c8;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.tag-picker-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #5b5c6b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tag-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid #dedee8;
+  border-radius: 10px;
+  background: #fafafd;
+  color: #474757;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tag-option input {
+  width: auto;
+  margin: 0;
+}
+
+.tag-name-field {
+  display: grid;
+  gap: 8px;
+  color: #5b5c6b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tag-name-field input {
+  width: 100%;
+  padding: 12px 13px;
+  border: 1px solid #dedee8;
+  border-radius: 11px;
+  outline: none;
+  color: #30303d;
+  background: #fafafd;
+}
+
+.tag-form-actions {
+  margin-top: 16px;
+}
+
+.tag-manager-list {
+  margin: 22px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.tag-manager-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #ececf3;
+  border-radius: 12px;
+  color: #30303d;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.tag-manager-list li div {
+  display: flex;
+  gap: 8px;
+}
+
+.tag-delete {
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.tag-empty {
+  margin: 22px 0 0;
+  color: #9293a0;
+  font-size: 13px;
+}
+
 
 /* ========================================
    CONTACT GRID
@@ -1177,7 +1320,8 @@
   font-weight: 700;
 }
 
-.form-fields label:nth-child(4) {
+.form-fields label:nth-child(4),
+.form-fields .tag-picker-field {
   grid-column:
     1 / -1;
 }
@@ -1437,7 +1581,8 @@
       1fr;
   }
 
-  .form-fields label:nth-child(4) {
+  .form-fields label:nth-child(4),
+  .form-fields .tag-picker-field {
     grid-column:
       auto;
   }

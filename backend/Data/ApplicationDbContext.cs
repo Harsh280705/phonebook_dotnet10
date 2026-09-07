@@ -8,6 +8,8 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
     public DbSet<User> Users => Set<User>();
     public DbSet<AuthSession> AuthSessions => Set<AuthSession>();
     public DbSet<Contact> Contacts => Set<Contact>();
+    public DbSet<Tag> Tags => Set<Tag>();
+    public DbSet<ContactTag> ContactTags => Set<ContactTag>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -51,6 +53,27 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
             entity.HasIndex(x => x.PhoneNumber).IsUnique();
             entity.HasIndex(x => x.Email).IsUnique();
             entity.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasMany(x => x.ContactTags).WithOne().HasForeignKey(x => x.ContactId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Tag>(entity =>
+        {
+            entity.ToTable("tags");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(x => x.UserId).HasColumnName("user_id");
+            entity.Property(x => x.Name).HasColumnName("name").HasMaxLength(50).IsRequired();
+            entity.HasIndex(x => new { x.UserId, x.Name }).IsUnique();
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasMany(x => x.ContactTags).WithOne().HasForeignKey(x => x.TagId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ContactTag>(entity =>
+        {
+            entity.ToTable("contact_tags");
+            entity.HasKey(x => new { x.ContactId, x.TagId });
+            entity.Property(x => x.ContactId).HasColumnName("contact_id");
+            entity.Property(x => x.TagId).HasColumnName("tag_id");
         });
     }
 }
